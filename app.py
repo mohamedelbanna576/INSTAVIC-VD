@@ -68,18 +68,11 @@ async def health_check():
     """Verify that the app is alive and check current write path."""
     return {
         "status": "online",
-        "version": "2.2.0",
+        "version": "2.2.1",
         "is_vercel": IS_VERCEL,
         "writable_base": str(get_base_writable_dir())
     }
 
-@app.get("/downloads/{task_id}/{filename}")
-async def serve_download(task_id: str, filename: str):
-    """Dynamically serve files from the writable downloads folder."""
-    file_path = get_downloads_dir() / task_id / filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(file_path)
 
 # Instaloader instance (reusable)
 L = instaloader.Instaloader(
@@ -593,7 +586,7 @@ async def download_file(task_id: str, filename: str):
     """Serve a downloaded video file."""
     # Sanitize to prevent path traversal
     safe_filename = Path(filename).name
-    file_path = DOWNLOADS_DIR / task_id / safe_filename
+    file_path = get_downloads_dir() / task_id / safe_filename
 
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found.")
@@ -604,6 +597,7 @@ async def download_file(task_id: str, filename: str):
         media_type="video/mp4",
         headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
     )
+
 
 
 @app.post("/api/bulk/zip/{task_id}")
@@ -618,7 +612,7 @@ async def create_zip(task_id: str):
         raise HTTPException(status_code=404, detail="Download folder not found.")
 
     zip_name = f"{task.get('username', 'videos')}_{task_id}.zip"
-    zip_path = DOWNLOADS_DIR / zip_name
+    zip_path = get_downloads_dir() / zip_name
 
     with zipfile.ZipFile(str(zip_path), "w", zipfile.ZIP_DEFLATED) as zf:
         for video_file in task_dir.glob("*.mp4"):
@@ -635,7 +629,7 @@ async def create_zip(task_id: str):
 async def download_zip(filename: str):
     """Serve a ZIP file."""
     safe_filename = Path(filename).name
-    file_path = DOWNLOADS_DIR / safe_filename
+    file_path = get_downloads_dir() / safe_filename
 
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="ZIP file not found.")
