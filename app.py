@@ -33,22 +33,21 @@ import yt_dlp
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
-app = FastAPI(title="INSTAVIC VD", version="2.1.0")
+app = FastAPI(title="INSTAVIC VD", version="2.2.0")
 
 BASE_DIR = Path(__file__).resolve().parent
+# Force /tmp on Vercel, use local for Dev
+IS_VERCEL = os.environ.get("VERCEL", "0") == "1"
 
 def get_base_writable_dir() -> Path:
     """Determine writable base directory (local or /tmp)."""
-    local_dir = BASE_DIR / "downloads"
-    try:
-        local_dir.mkdir(parents=True, exist_ok=True)
-        return BASE_DIR
-    except (OSError, PermissionError):
+    if IS_VERCEL:
         tmp_dir = Path("/tmp/instavic")
         tmp_dir.mkdir(parents=True, exist_ok=True)
         return tmp_dir
+    return BASE_DIR
 
-# Lazy-initialized paths (to prevent import-time crashes on Vercel)
+# Paths (now stable since mkdir is handled in get_base_writable_dir)
 def get_downloads_dir() -> Path:
     d = get_base_writable_dir() / "downloads"
     d.mkdir(parents=True, exist_ok=True)
@@ -60,8 +59,7 @@ def get_config_file() -> Path:
 def get_proxies_file() -> Path:
     return get_base_writable_dir() / "proxies.txt"
 
-
-# Static files should still be served from the project root (BASE_DIR)
+# Static files (Read-only assets, safe to mount)
 STATIC_DIR = BASE_DIR / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -70,21 +68,18 @@ async def health_check():
     """Verify that the app is alive and check current write path."""
     return {
         "status": "online",
-        "version": "2.1.0",
-        "writable_base": str(get_base_writable_dir()),
-        "base_dir": str(BASE_DIR)
+        "version": "2.2.0",
+        "is_vercel": IS_VERCEL,
+        "writable_base": str(get_base_writable_dir())
     }
 
-# Re-mount downloads lazily or just point it to a safe path for mount
-# Note: app.mount needs a directory at setup time.
-# We'll use get_base_writable_dir() / downloads as a placeholder.
-DOWNLOAD_MOUNT_DIR = get_base_writable_dir() / "downloads"
-DOWNLOAD_MOUNT_DIR.mkdir(parents=True, exist_ok=True)
-app.mount(
-    "/downloads",
-    StaticFiles(directory=str(DOWNLOAD_MOUNT_DIR)),
-    name="downloads",
-)
+@app.get("/downloads/{task_id}/{filename}")
+async def serve_download(task_id: str, filename: str):
+    """Dynamically serve files from the writable downloads folder."""
+    file_path = get_downloads_dir() / task_id / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path)
 
 # Instaloader instance (reusable)
 L = instaloader.Instaloader(
