@@ -375,17 +375,18 @@ def _do_single_download(url: str, shortcode: str, task_id: str, task_dir: Path, 
         raise
     except instaloader.exceptions.InstaloaderException as e:
         msg = str(e).lower()
-        if 'rate' in msg or '429' in msg:
-            raise HTTPException(status_code=429, detail="Instagram is rate-limiting this IP. Please click 'Connect Account' and provide your session ID to fix this.")
-        elif 'private' in msg or 'login' in msg:
+        if 'rate' in msg or '429' in msg or '401' in msg or 'login' in msg or 'unauthorized' in msg:
+            raise HTTPException(status_code=403, detail="Instagram is blocking automated requests from Vercel's IP. To bypass this, please click 'Connect Account' at the top left and paste your Instagram Session ID.")
+        elif 'private' in msg:
             raise HTTPException(status_code=403, detail="This post is from a private account.")
         elif 'not found' in msg or '404' in msg:
             raise HTTPException(status_code=404, detail="Post not found or was deleted.")
         else:
-            raise HTTPException(status_code=500, detail=f"Download failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Instagram blocked the download: {e}. Please use 'Connect Account' to bypass restrictions.")
     except Exception as e:
         shutil.rmtree(task_dir, ignore_errors=True)
-        raise HTTPException(status_code=500, detail=f"Both download methods failed. Please connect your Instagram account. Error: {e}")
+        raise HTTPException(status_code=500, detail=f"All download methods blocked by Instagram. Please click 'Connect Account' and provide your Session ID to fix this! Error: {e}")
+
 
 
 @app.post("/api/bulk")
