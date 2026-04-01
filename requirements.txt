@@ -3,3 +3,8 @@ uvicorn[standard]==0.30.0
 instaloader==4.13
 python-multipart==0.0.9
 yt-dlp
+gunicorn
+mangum
+requests
+pydantic
+aiofiles

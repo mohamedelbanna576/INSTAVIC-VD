@@ -1,0 +1,10 @@
+{
+  "rewrite": [
+    { "source": "/(.*)", "destination": "app.py" }
+  ],
+  "functions": {
+    "app.py": {
+      "runtime": "vercel-python@0.10.x"
+    }
+  }
+}

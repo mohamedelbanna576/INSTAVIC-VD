@@ -35,13 +35,26 @@ import yt_dlp
 # ---------------------------------------------------------------------------
 app = FastAPI(title="INSTAVIC VD", version="2.0.0")
 
+# Vercel Compatibility: Use /tmp for all write operations in serverless environments
+IS_VERCEL = os.environ.get("VERCEL", "0") == "1"
 BASE_DIR = Path(__file__).resolve().parent
-DOWNLOADS_DIR = BASE_DIR / "downloads"
-STATIC_DIR = BASE_DIR / "static"
-CONFIG_FILE = BASE_DIR / "config.json"
-PROXIES_FILE = BASE_DIR / "proxies.txt"
 
-DOWNLOADS_DIR.mkdir(exist_ok=True)
+if IS_VERCEL:
+    # On Vercel, the root is read-only. We MUST use /tmp for all writes.
+    DOWNLOADS_DIR = Path("/tmp/downloads")
+    CONFIG_FILE = Path("/tmp/config.json")
+    PROXIES_FILE = Path("/tmp/proxies.txt")
+else:
+    # Local development
+    DOWNLOADS_DIR = BASE_DIR / "downloads"
+    CONFIG_FILE = BASE_DIR / "config.json"
+    PROXIES_FILE = BASE_DIR / "proxies.txt"
+
+DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Static files should still be served from the project root (BASE_DIR)
+# as Vercel bundles them for us.
+STATIC_DIR = BASE_DIR / "static"
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount(
