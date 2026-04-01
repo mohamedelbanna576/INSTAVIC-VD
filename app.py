@@ -33,34 +33,56 @@ import yt_dlp
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
-app = FastAPI(title="INSTAVIC VD", version="2.0.0")
+app = FastAPI(title="INSTAVIC VD", version="2.1.0")
 
 BASE_DIR = Path(__file__).resolve().parent
 
-def get_writable_path(target_name: str, is_dir: bool = False) -> Path:
-    """Attempt local path, fallback to /tmp if read-only."""
-    local_path = BASE_DIR / target_name
-    tmp_path = Path("/tmp") / target_name
+def get_base_writable_dir() -> Path:
+    """Determine writable base directory (local or /tmp)."""
+    local_dir = BASE_DIR / "downloads"
     try:
-        if is_dir:
-            local_path.mkdir(parents=True, exist_ok=True)
-        else:
-            local_path.touch(exist_ok=True)
-        return local_path
+        local_dir.mkdir(parents=True, exist_ok=True)
+        return BASE_DIR
     except (OSError, PermissionError):
-        if is_dir:
-            tmp_path.mkdir(parents=True, exist_ok=True)
-        return tmp_path
+        tmp_dir = Path("/tmp/instavic")
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        return tmp_dir
 
-DOWNLOADS_DIR = get_writable_path("downloads", is_dir=True)
+# Lazy-initialized paths (to prevent import-time crashes on Vercel)
+def get_downloads_dir() -> Path:
+    d = get_base_writable_dir() / "downloads"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def get_config_file() -> Path:
+    return get_base_writable_dir() / "config.json"
+
+def get_proxies_file() -> Path:
+    return get_base_writable_dir() / "proxies.txt"
+
+
+# Static files should still be served from the project root (BASE_DIR)
 STATIC_DIR = BASE_DIR / "static"
-CONFIG_FILE = get_writable_path("config.json")
-PROXIES_FILE = get_writable_path("proxies.txt")
-
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+@app.get("/api/health")
+async def health_check():
+    """Verify that the app is alive and check current write path."""
+    return {
+        "status": "online",
+        "version": "2.1.0",
+        "writable_base": str(get_base_writable_dir()),
+        "base_dir": str(BASE_DIR)
+    }
+
+# Re-mount downloads lazily or just point it to a safe path for mount
+# Note: app.mount needs a directory at setup time.
+# We'll use get_base_writable_dir() / downloads as a placeholder.
+DOWNLOAD_MOUNT_DIR = get_base_writable_dir() / "downloads"
+DOWNLOAD_MOUNT_DIR.mkdir(parents=True, exist_ok=True)
 app.mount(
     "/downloads",
-    StaticFiles(directory=str(DOWNLOADS_DIR)),
+    StaticFiles(directory=str(DOWNLOAD_MOUNT_DIR)),
     name="downloads",
 )
 
@@ -101,27 +123,27 @@ L.context._session.post = _post_with_timeout
 # State Management (Config & Proxy)
 # ---------------------------------------------------------------------------
 
-if not CONFIG_FILE.exists():
-    with open(CONFIG_FILE, "w") as f:
+if not get_config_file().exists():
+    with open(get_config_file(), "w") as f:
         json.dump({"instagram_session_id": ""}, f)
 
 def load_config() -> dict:
     try:
-        with open(CONFIG_FILE, "r") as f:
+        with open(get_config_file(), "r") as f:
             return json.load(f)
     except Exception:
         return {"instagram_session_id": ""}
 
 def save_config(data: dict):
-    with open(CONFIG_FILE, "w") as f:
+    with open(get_config_file(), "w") as f:
         json.dump(data, f)
 
 def get_random_proxy() -> Optional[str]:
     """Retrieve a random proxy line from proxies.txt if available."""
-    if not PROXIES_FILE.exists():
+    if not get_proxies_file().exists():
         return None
     try:
-        with open(PROXIES_FILE, "r") as f:
+        with open(get_proxies_file(), "r") as f:
             proxies = [line.strip() for line in f if line.strip() and not line.startswith("#")]
         if proxies:
             return random.choice(proxies)
@@ -216,7 +238,7 @@ async def get_config():
     conf = load_config()
     return {
         "connected": bool(conf.get("instagram_session_id")),
-        "proxy_enabled": PROXIES_FILE.exists()
+        "proxy_enabled": get_proxies_file().exists()
     }
 
 
@@ -256,7 +278,7 @@ async def download_single(req: SingleDownloadRequest):
         raise HTTPException(status_code=400, detail="Invalid URL. Please provide a valid Instagram post or reel link.")
 
     task_id = uuid.uuid4().hex[:12]
-    task_dir = DOWNLOADS_DIR / task_id
+    task_dir = get_downloads_dir() / task_id
     task_dir.mkdir(exist_ok=True)
     
     # Grab the current configs for this request
@@ -391,7 +413,7 @@ async def start_bulk_download(req: BulkDownloadRequest):
         )
 
     task_id = uuid.uuid4().hex[:12]
-    task_dir = DOWNLOADS_DIR / task_id
+    task_dir = get_downloads_dir() / task_id
     task_dir.mkdir(exist_ok=True)
 
     max_posts = min(req.max_posts or 50, 200)  # hard cap at 200
@@ -596,7 +618,7 @@ async def create_zip(task_id: str):
     if not task:
         raise HTTPException(status_code=404, detail="Task not found.")
 
-    task_dir = DOWNLOADS_DIR / task_id
+    task_dir = get_downloads_dir() / task_id
     if not task_dir.exists():
         raise HTTPException(status_code=404, detail="Download folder not found.")
 
