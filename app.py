@@ -35,26 +35,27 @@ import yt_dlp
 # ---------------------------------------------------------------------------
 app = FastAPI(title="INSTAVIC VD", version="2.0.0")
 
-# Vercel Compatibility: Use /tmp for all write operations in serverless environments
-IS_VERCEL = os.environ.get("VERCEL", "0") == "1"
 BASE_DIR = Path(__file__).resolve().parent
 
-if IS_VERCEL:
-    # On Vercel, the root is read-only. We MUST use /tmp for all writes.
-    DOWNLOADS_DIR = Path("/tmp/downloads")
-    CONFIG_FILE = Path("/tmp/config.json")
-    PROXIES_FILE = Path("/tmp/proxies.txt")
-else:
-    # Local development
-    DOWNLOADS_DIR = BASE_DIR / "downloads"
-    CONFIG_FILE = BASE_DIR / "config.json"
-    PROXIES_FILE = BASE_DIR / "proxies.txt"
+def get_writable_path(target_name: str, is_dir: bool = False) -> Path:
+    """Attempt local path, fallback to /tmp if read-only."""
+    local_path = BASE_DIR / target_name
+    tmp_path = Path("/tmp") / target_name
+    try:
+        if is_dir:
+            local_path.mkdir(parents=True, exist_ok=True)
+        else:
+            local_path.touch(exist_ok=True)
+        return local_path
+    except (OSError, PermissionError):
+        if is_dir:
+            tmp_path.mkdir(parents=True, exist_ok=True)
+        return tmp_path
 
-DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-
-# Static files should still be served from the project root (BASE_DIR)
-# as Vercel bundles them for us.
+DOWNLOADS_DIR = get_writable_path("downloads", is_dir=True)
 STATIC_DIR = BASE_DIR / "static"
+CONFIG_FILE = get_writable_path("config.json")
+PROXIES_FILE = get_writable_path("proxies.txt")
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount(
