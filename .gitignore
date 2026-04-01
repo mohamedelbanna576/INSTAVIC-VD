@@ -1,0 +1,41 @@
+# Python system
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+venv/
+ENV/
+env/
+
+# Project specifics
+downloads/
+config.json
+proxies.txt
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# AI / Internal
+.gemini/
+.agents/
+.agent/
+_agents/
+_agent/
+brain/
+artifacts/
+tmp/
+*.webp
+*.png
+*.jpg
+*.jpeg
+*.mp4
+walkthrough.md
+implementation_plan.md
+task.md
+implementation_plan_github.md

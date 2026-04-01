@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="INSTAVIC VD — Download videos from public Instagram profiles. Single video and bulk profile download support.">
+    <meta name="theme-color" content="#0a0a0f">
+    <title>INSTAVIC VD — Premium Instagram Downloader</title>
+
+    <!-- Tailwind CSS v3 CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="/static/style.css">
+
+    <!-- Favicon (inline SVG data URI) -->
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✨</text></svg>">
+</head>
+
+<body>
+
+    <!-- Animated Premium Background -->
+    <div class="bg-layer bg-noise"></div>
+    <div class="bg-orb-container">
+        <div class="bg-orb orb-1"></div>
+        <div class="bg-orb orb-2"></div>
+        <div class="bg-orb orb-3"></div>
+    </div>
+
+    <div class="app-container">
+        <!-- Top Navigation -->
+        <nav class="top-nav">
+            <div class="nav-brand">
+                <div class="brand-icon">
+                    <i class="ph-fill ph-instagram-logo"></i>
+                </div>
+                <span class="brand-text">INSTAVIC VD</span>
+            </div>
+
+            <button class="glass-btn btn-sm" id="settings-open" title="Connect Instagram Account">
+                <i class="ph ph-plug-charging"></i>
+                <span>Connect Account</span>
+            </button>
+        </nav>
+
+        <main class="main-content">
+            <!-- ====== Hero Section ====== -->
+            <section class="hero-section" id="hero">
+                <div class="hero-badge">
+                    <span class="pulse-dot"></span>
+                    Fast & Free Downloads
+                </div>
+                <h1 class="hero-title">
+                    The Ultimate <br />
+                    <span class="gradient-text">Instagram Downloader</span>
+                </h1>
+                <p class="hero-subtitle">Download high-quality videos and reels from public profiles effortlessly.</p>
+            </section>
+
+            <!-- ====== Search Console ====== -->
+            <section class="glass-panel main-panel" id="search-card">
+
+                <!-- Mode Toggle -->
+                <div class="segment-control" id="mode-toggle">
+                    <div class="segment-indicator"></div>
+                    <button class="segment-btn active" data-mode="single" id="mode-single-btn" type="button">
+                        <i class="ph ph-play-circle"></i>
+                        <span>Single Video</span>
+                    </button>
+                    <button class="segment-btn" data-mode="bulk" id="mode-bulk-btn" type="button">
+                        <i class="ph ph-stack"></i>
+                        <span>Bulk Profile</span>
+                    </button>
+                </div>
+
+                <!-- Input Area -->
+                <div class="input-group">
+                    <div class="input-glow"></div>
+                    <i class="ph ph-link input-icon-left"></i>
+                    <input type="url" class="glass-input" id="url-input"
+                        placeholder="Paste Instagram video or profile URL..." autocomplete="off" spellcheck="false">
+                    <div class="input-border"></div>
+                </div>
+
+                <!-- Bulk Settings -->
+                <div class="bulk-settings" id="max-posts-row">
+                    <div class="settings-label">
+                        <i class="ph ph-sliders"></i>
+                        <label for="max-posts-input">Max videos to scan:</label>
+                    </div>
+                    <input type="number" class="glass-input input-sm" id="max-posts-input" value="50" min="1" max="200">
+                </div>
+
+                <!-- Action Button -->
+                <button class="primary-btn mt-6" id="submit-btn" type="button">
+                    <div class="btn-bg"></div>
+                    <div class="btn-content">
+                        <i class="ph-bold ph-download-simple" id="submit-icon"></i>
+                        <span id="submit-btn-text">Download Video</span>
+                        <div class="spinner" id="submit-spinner"></div>
+                    </div>
+                </button>
+
+                <!-- Status Messages -->
+                <div class="status-bar" id="status-bar">
+                    <div class="status-message" id="status-message">
+                        <i id="status-icon" class="ph-fill"></i>
+                        <span id="status-text"></span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ====== Loading State ====== -->
+            <div class="loading-state" id="loading-overlay">
+                <div class="premium-spinner">
+                    <div class="spinner-ring"></div>
+                    <div class="spinner-ring inner"></div>
+                    <i class="ph-fill ph-instagram-logo"></i>
+                </div>
+                <p class="loading-text" id="loading-text">Extracting media...</p>
+            </div>
+
+            <!-- ====== Bulk Progress ====== -->
+            <section class="progress-section" id="progress-section">
+                <div class="glass-panel progress-panel">
+                    <div class="progress-header">
+                        <div class="progress-info">
+                            <i class="ph-fill ph-spinner-gap spin-icon"></i>
+                            <span class="progress-title" id="progress-title">Downloading videos...</span>
+                        </div>
+                        <div class="progress-metrics">
+                            <span class="progress-count" id="progress-count">0 / 0</span>
+                        </div>
+                    </div>
+
+                    <div class="progress-track">
+                        <div class="progress-fill" id="progress-bar">
+                            <div class="progress-glow"></div>
+                        </div>
+                    </div>
+                    <p class="progress-status" id="progress-status">Scanning profile...</p>
+                </div>
+            </section>
+
+            <!-- ====== Results Showcase ====== -->
+            <section class="results-section" id="results-section">
+                <div class="results-header">
+                    <div class="results-title-group">
+                        <i class="ph-fill ph-check-circle text-green-400 text-xl"></i>
+                        <h2 class="results-title" id="results-title">Ready to Download</h2>
+                    </div>
+                    <button class="glass-btn btn-sm action-btn" id="zip-btn" type="button" style="display:none;">
+                        <i class="ph ph-file-zip"></i>
+                        <span>Download ZIP</span>
+                    </button>
+                </div>
+
+                <div class="video-grid" id="video-grid"></div>
+            </section>
+        </main>
+
+        <!-- ====== Footer ====== -->
+        <footer class="app-footer">
+            <p class="footer-disclaimer">
+                <i class="ph-fill ph-warning-circle"></i>
+                This tool is for Public Profiles only. Respect creators' rights.
+            </p>
+            <p class="footer-brand">Engineered with precision <span class="gradient-text">Mohamed El Banna</span></p>
+        </footer>
+    </div>
+
+    <!-- ====== Settings Modal ====== -->
+    <div class="modal-overlay" id="settings-modal">
+        <div class="glass-modal">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <i class="ph-fill ph-plug-charging text-accent"></i>
+                    <h3>Connect Account</h3>
+                </div>
+                <button class="modal-close" id="settings-close">
+                    <i class="ph ph-x"></i>
+                </button>
+            </div>
+
+            <div class="modal-body">
+                <p class="modal-tip">
+                    Bypass anonymous rate limits by linking your session.
+                    This runs entirely locally on your machine.
+                </p>
+
+                <div class="instruction-box">
+                    <div class="step-line">
+                        <span class="step-num">1</span>
+                        <span>Log into <b>Instagram.com</b> in your browser.</span>
+                    </div>
+                    <div class="step-line">
+                        <span class="step-num">2</span>
+                        <span>Press <b>F12</b> to open DevTools.</span>
+                    </div>
+                    <div class="step-line">
+                        <span class="step-num">3</span>
+                        <span>Go to <b>Application > Cookies > instagram.com</b>.</span>
+                    </div>
+                    <div class="step-line">
+                        <span class="step-num">4</span>
+                        <span>Copy the value of <b>sessionid</b> and paste it below.</span>
+                    </div>
+                </div>
+
+                <div class="modal-input-group">
+                    <i class="ph ph-key input-icon-left"></i>
+                    <input type="password" class="glass-input" id="session-id-input"
+                        placeholder="sessionid cookie value...">
+                </div>
+
+                <button class="primary-btn mt-4 w-full" id="save-session-btn">
+                    <div class="btn-bg"></div>
+                    <div class="btn-content justify-center">
+                        <i class="ph-bold ph-floppy-disk"></i>
+                        <span>Save & Authenticate</span>
+                    </div>
+                </button>
+                <p class="session-status-text" id="session-status-text"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- App Script -->
+    <script src="/static/script.js"></script>
+</body>
+
+</html>
