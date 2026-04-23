@@ -994,4 +994,5 @@ def _do_youtube_download(url: str, format_id: str, quality_label: str, task_id: 
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=False)
+    # use_colors=False is CRITICAL for --noconsole EXE to avoid logging crashes
+    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=False, use_colors=False, log_level="info")
