@@ -699,12 +699,26 @@ def _fetch_youtube_info(url: str) -> dict:
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
-        'socket_timeout': 20,
+        'socket_timeout': 30,
         'skip_download': True,
+        # Try to extract cookies from popular browsers to avoid bot block
+        'cookiesfrombrowser': ('chrome', ),
     }
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as e:
+        # Fallback to edge if chrome fails
+        try:
+            ydl_opts['cookiesfrombrowser'] = ('edge', )
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception:
+            # Fallback to without cookies
+            del ydl_opts['cookiesfrombrowser']
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
 
     if not info:
         raise HTTPException(status_code=404, detail="Could not find video information.")
@@ -886,13 +900,18 @@ def _do_youtube_download(url: str, format_id: str, quality_label: str, task_id: 
     """Blocking — download YouTube video via yt-dlp."""
     is_audio_only = quality_label.lower().startswith('audio')
 
+    base_ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'socket_timeout': 30,
+        'cookiesfrombrowser': ('chrome', ),
+    }
+
     if is_audio_only:
         ydl_opts = {
+            **base_ydl_opts,
             'format': f'{format_id}/bestaudio',
             'outtmpl': str(task_dir / '%(title)s.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True,
-            'socket_timeout': 30,
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -902,50 +921,61 @@ def _do_youtube_download(url: str, format_id: str, quality_label: str, task_id: 
     else:
         # For video-only formats, merge with best audio
         ydl_opts = {
+            **base_ydl_opts,
             'format': f'{format_id}+bestaudio/best',
             'outtmpl': str(task_dir / '%(title)s.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True,
-            'socket_timeout': 30,
             'merge_output_format': 'mp4',
         }
 
+    info = None
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-
-        if not info:
-            raise HTTPException(status_code=500, detail="Download failed — no info returned.")
-
-        # Find the downloaded file
-        downloaded_file = None
-        for f in task_dir.iterdir():
-            if f.is_file() and f.suffix.lower() in {".mp4", ".mkv", ".webm", ".mp3", ".m4a", ".ogg", ".opus", ".mov"}:
-                downloaded_file = f
-                break
-
-        if not downloaded_file:
-            raise HTTPException(status_code=500, detail="Download completed but no file was found.")
-
-        return {
-            'success': True,
-            'video': {
-                'filename': downloaded_file.name,
-                'download_url': f'/api/download/{task_id}/{downloaded_file.name}',
-                'title': info.get('title', ''),
-                'quality': quality_label,
-                'duration': info.get('duration', 0),
-                'uploader': info.get('uploader', ''),
-                'thumbnail': info.get('thumbnail', ''),
-            },
-        }
-
     except yt_dlp.utils.DownloadError as e:
-        raise HTTPException(status_code=500, detail=f"YouTube download error: {e}")
-    except HTTPException:
-        raise
+        if 'Sign in to confirm you' in str(e) or 'cookies' in str(e).lower():
+            # Fallback to edge if chrome fails
+            try:
+                ydl_opts['cookiesfrombrowser'] = ('edge', )
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+            except Exception:
+                try:
+                    # Fallback to without cookies
+                    del ydl_opts['cookiesfrombrowser']
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                except Exception as inner_e:
+                    raise HTTPException(status_code=500, detail=f"YouTube download error: {inner_e}")
+        else:
+            raise HTTPException(status_code=500, detail=f"YouTube download error: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Download failed: {e}")
+
+    if not info:
+        raise HTTPException(status_code=500, detail="Download failed — no info returned.")
+
+    # Find the downloaded file
+    downloaded_file = None
+    for f in task_dir.iterdir():
+        if f.is_file() and f.suffix.lower() in {".mp4", ".mkv", ".webm", ".mp3", ".m4a", ".ogg", ".opus", ".mov"}:
+            downloaded_file = f
+            break
+
+    if not downloaded_file:
+        raise HTTPException(status_code=500, detail="Download completed but no file was found.")
+
+    return {
+        'success': True,
+        'video': {
+            'filename': downloaded_file.name,
+            'download_url': f'/api/download/{task_id}/{downloaded_file.name}',
+            'title': info.get('title', ''),
+            'quality': quality_label,
+            'duration': info.get('duration', 0),
+            'uploader': info.get('uploader', ''),
+            'thumbnail': info.get('thumbnail', ''),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
