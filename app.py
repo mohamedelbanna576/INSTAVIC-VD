@@ -701,7 +701,9 @@ def _fetch_youtube_info(url: str) -> dict:
         'no_warnings': True,
         'socket_timeout': 30,
         'skip_download': True,
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'extractor_args': {'youtube': {'player_client': ['all']}},
+        'js_runtimes': {'node': {}},
+        'remote_components': ['ejs:github'],
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -891,7 +893,9 @@ def _do_youtube_download(url: str, format_id: str, quality_label: str, task_id: 
         'quiet': True,
         'no_warnings': True,
         'socket_timeout': 30,
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'extractor_args': {'youtube': {'player_client': ['all']}},
+        'js_runtimes': {'node': {}},
+        'remote_components': ['ejs:github'],
     }
 
     if is_audio_only:
