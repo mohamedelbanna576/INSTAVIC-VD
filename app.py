@@ -1,5 +1,5 @@
 """
-INSTAVIC VD — Premium Instagram Downloader
+INSTAVIC VD — Premium Instagram & YouTube Downloader
 FastAPI Backend Server
 """
 
@@ -170,6 +170,14 @@ class BulkDownloadRequest(BaseModel):
     url: str
     max_posts: Optional[int] = 50  # safety cap
 
+class YouTubeInfoRequest(BaseModel):
+    url: str
+
+class YouTubeDownloadRequest(BaseModel):
+    url: str
+    format_id: str  # yt-dlp format ID chosen by user
+    quality_label: str = ""  # human-readable label for filename
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -181,6 +189,13 @@ INSTAGRAM_PROFILE_RE = re.compile(
     r"(?:https?://)?(?:www\.)?instagram\.com/"
     r"([A-Za-z0-9_.]+)/?(?:\?.*)?$",
 )
+YOUTUBE_RE = re.compile(
+    r"(?:https?://)?(?:www\.|m\.)?(?:youtube\.com/(?:watch\?v=|shorts/|embed/)|youtu\.be/)([A-Za-z0-9_-]{11})"
+)
+
+def is_youtube_url(url: str) -> bool:
+    """Check if the URL is a YouTube video URL."""
+    return bool(YOUTUBE_RE.search(url))
 
 def extract_shortcode(url: str) -> Optional[str]:
     """Extract the shortcode from an Instagram post/reel URL."""
@@ -582,7 +597,7 @@ async def bulk_status_sse(task_id: str):
     )
 
 
-@app.get("/api/download/{task_id}/{filename}")
+@app.get("/api/download/{task_id}/{filename:path}")
 async def download_file(task_id: str, filename: str):
     """Serve a downloaded video file."""
     # Sanitize to prevent path traversal
@@ -592,11 +607,21 @@ async def download_file(task_id: str, filename: str):
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found.")
 
+    # Use ASCII-safe filename for Content-Disposition to avoid latin-1 encoding errors
+    from urllib.parse import quote
+    ascii_safe = safe_filename.encode('ascii', errors='replace').decode('ascii')
+    utf8_encoded = quote(safe_filename)
+
+    # Detect media type based on extension
+    ext = safe_filename.rsplit('.', 1)[-1].lower() if '.' in safe_filename else ''
+    media_types = {'mp4': 'video/mp4', 'mp3': 'audio/mpeg', 'm4a': 'audio/mp4', 'webm': 'video/webm', 'mkv': 'video/x-matroska'}
+    media_type = media_types.get(ext, 'application/octet-stream')
+
     return FileResponse(
         path=str(file_path),
         filename=safe_filename,
-        media_type="video/mp4",
-        headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename=\"{ascii_safe}\"; filename*=UTF-8''{utf8_encoded}"},
     )
 
 
@@ -641,6 +666,286 @@ async def download_zip(filename: str):
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# YouTube Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/youtube/info")
+async def youtube_info(req: YouTubeInfoRequest):
+    """Fetch available video qualities for a YouTube URL."""
+    url = req.url.strip()
+    if not is_youtube_url(url):
+        raise HTTPException(status_code=400, detail="Invalid YouTube URL. Please provide a valid YouTube video link.")
+
+    loop = asyncio.get_event_loop()
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(_thread_pool, partial(_fetch_youtube_info, url)),
+            timeout=30.0
+        )
+        return result
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Timed out while fetching video info. Please try again.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch video info: {e}")
+
+
+def _fetch_youtube_info(url: str) -> dict:
+    """Blocking — extract available formats from a YouTube video."""
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'socket_timeout': 20,
+        'skip_download': True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    if not info:
+        raise HTTPException(status_code=404, detail="Could not find video information.")
+
+    title = info.get('title', 'YouTube Video')
+    thumbnail = info.get('thumbnail', '')
+    duration = info.get('duration', 0)
+    uploader = info.get('uploader', '')
+    view_count = info.get('view_count', 0)
+
+    # Collect unique quality options — ALWAYS prefer MP4 over WEBM
+    formats = info.get('formats', [])
+    quality_map = {}  # height -> format info
+
+    def _format_score(ext: str, has_audio: bool) -> int:
+        """Higher score = more preferred. MP4 > WEBM, combined > video-only."""
+        score = 0
+        if ext == 'mp4':
+            score += 10
+        if has_audio:
+            score += 5
+        return score
+
+    for f in formats:
+        height = f.get('height')
+        vcodec = f.get('vcodec', 'none')
+        acodec = f.get('acodec', 'none')
+        ext = f.get('ext', '')
+        format_id = f.get('format_id', '')
+        filesize = f.get('filesize') or f.get('filesize_approx') or 0
+
+        if not height or vcodec == 'none':
+            continue
+
+        # Determine quality label
+        if height >= 2160:
+            label = '4K (2160p)'
+        elif height >= 1440:
+            label = '2K (1440p)'
+        elif height >= 1080:
+            label = 'Full HD (1080p)'
+        elif height >= 720:
+            label = 'HD (720p)'
+        elif height >= 480:
+            label = '480p'
+        elif height >= 360:
+            label = '360p'
+        elif height >= 240:
+            label = '240p'
+        elif height >= 144:
+            label = '144p'
+        else:
+            continue
+
+        has_audio = acodec != 'none'
+        new_score = _format_score(ext, has_audio)
+
+        existing = quality_map.get(height)
+        if not existing:
+            quality_map[height] = {
+                'format_id': format_id,
+                'height': height,
+                'label': label,
+                'ext': ext,
+                'filesize': filesize,
+                'has_audio': has_audio,
+                'combined': has_audio,
+                '_score': new_score,
+            }
+        else:
+            old_score = existing.get('_score', 0)
+            # Replace if new format has a better score, or same score but larger file
+            if new_score > old_score or (new_score == old_score and filesize > existing['filesize']):
+                quality_map[height] = {
+                    'format_id': format_id,
+                    'height': height,
+                    'label': label,
+                    'ext': ext,
+                    'filesize': filesize,
+                    'has_audio': has_audio,
+                    'combined': has_audio,
+                    '_score': new_score,
+                }
+
+    # Since we always merge to MP4 on download, override displayed ext to mp4
+    for q in quality_map.values():
+        q['ext'] = 'mp4'
+        q.pop('_score', None)
+
+    # Sort from highest to lowest quality
+    qualities = sorted(quality_map.values(), key=lambda x: x['height'], reverse=True)
+
+    # Format file sizes
+    for q in qualities:
+        if q['filesize'] > 0:
+            if q['filesize'] >= 1_073_741_824:
+                q['size_label'] = f"{q['filesize'] / 1_073_741_824:.1f} GB"
+            elif q['filesize'] >= 1_048_576:
+                q['size_label'] = f"{q['filesize'] / 1_048_576:.0f} MB"
+            elif q['filesize'] >= 1024:
+                q['size_label'] = f"{q['filesize'] / 1024:.0f} KB"
+            else:
+                q['size_label'] = f"{q['filesize']} B"
+        else:
+            q['size_label'] = ''
+
+    # Also add audio-only option
+    best_audio = None
+    for f in formats:
+        acodec = f.get('acodec', 'none')
+        vcodec = f.get('vcodec', 'none')
+        if acodec != 'none' and vcodec == 'none':
+            abr = f.get('abr', 0) or 0
+            if not best_audio or abr > (best_audio.get('abr', 0) or 0):
+                best_audio = f
+
+    if best_audio:
+        fs = best_audio.get('filesize') or best_audio.get('filesize_approx') or 0
+        if fs >= 1_048_576:
+            size_label = f"{fs / 1_048_576:.0f} MB"
+        elif fs >= 1024:
+            size_label = f"{fs / 1024:.0f} KB"
+        else:
+            size_label = ''
+        qualities.append({
+            'format_id': best_audio['format_id'],
+            'height': 0,
+            'label': 'Audio Only (MP3)',
+            'ext': best_audio.get('ext', 'm4a'),
+            'filesize': fs,
+            'size_label': size_label,
+            'has_audio': True,
+            'combined': False,
+        })
+
+    return {
+        'success': True,
+        'title': title,
+        'thumbnail': thumbnail,
+        'duration': duration,
+        'uploader': uploader,
+        'view_count': view_count,
+        'qualities': qualities,
+    }
+
+
+@app.post("/api/youtube/download")
+async def youtube_download(req: YouTubeDownloadRequest):
+    """Download a YouTube video in the selected quality."""
+    url = req.url.strip()
+    if not is_youtube_url(url):
+        raise HTTPException(status_code=400, detail="Invalid YouTube URL.")
+
+    task_id = uuid.uuid4().hex[:12]
+    task_dir = get_downloads_dir() / task_id
+    task_dir.mkdir(exist_ok=True)
+
+    loop = asyncio.get_event_loop()
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                _thread_pool,
+                partial(_do_youtube_download, url, req.format_id, req.quality_label, task_id, task_dir)
+            ),
+            timeout=300.0  # 5 minutes for large 4K downloads
+        )
+        return result
+    except asyncio.TimeoutError:
+        shutil.rmtree(task_dir, ignore_errors=True)
+        raise HTTPException(status_code=504, detail="Download timed out (5 min). The video may be too large. Try a lower quality.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        shutil.rmtree(task_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _do_youtube_download(url: str, format_id: str, quality_label: str, task_id: str, task_dir: Path) -> dict:
+    """Blocking — download YouTube video via yt-dlp."""
+    is_audio_only = quality_label.lower().startswith('audio')
+
+    if is_audio_only:
+        ydl_opts = {
+            'format': f'{format_id}/bestaudio',
+            'outtmpl': str(task_dir / '%(title)s.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+            'socket_timeout': 30,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '320',
+            }],
+        }
+    else:
+        # For video-only formats, merge with best audio
+        ydl_opts = {
+            'format': f'{format_id}+bestaudio/best',
+            'outtmpl': str(task_dir / '%(title)s.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+            'socket_timeout': 30,
+            'merge_output_format': 'mp4',
+        }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+
+        if not info:
+            raise HTTPException(status_code=500, detail="Download failed — no info returned.")
+
+        # Find the downloaded file
+        downloaded_file = None
+        for f in task_dir.iterdir():
+            if f.is_file() and f.suffix.lower() in {".mp4", ".mkv", ".webm", ".mp3", ".m4a", ".ogg", ".opus", ".mov"}:
+                downloaded_file = f
+                break
+
+        if not downloaded_file:
+            raise HTTPException(status_code=500, detail="Download completed but no file was found.")
+
+        return {
+            'success': True,
+            'video': {
+                'filename': downloaded_file.name,
+                'download_url': f'/api/download/{task_id}/{downloaded_file.name}',
+                'title': info.get('title', ''),
+                'quality': quality_label,
+                'duration': info.get('duration', 0),
+                'uploader': info.get('uploader', ''),
+                'thumbnail': info.get('thumbnail', ''),
+            },
+        }
+
+    except yt_dlp.utils.DownloadError as e:
+        raise HTTPException(status_code=500, detail=f"YouTube download error: {e}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Download failed: {e}")
 
 
 # ---------------------------------------------------------------------------

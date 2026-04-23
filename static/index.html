@@ -5,9 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description"
-        content="INSTAVIC VD — Download videos from public Instagram profiles. Single video and bulk profile download support.">
+        content="INSTAVIC VD — Download videos from Instagram & YouTube. All qualities up to 4K supported.">
     <meta name="theme-color" content="#0a0a0f">
-    <title>INSTAVIC VD — Premium Instagram Downloader</title>
+    <title>INSTAVIC VD — Premium Instagram & YouTube Downloader</title>
 
     <!-- Tailwind CSS v3 CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -58,10 +58,22 @@
                 </div>
                 <h1 class="hero-title">
                     The Ultimate <br />
-                    <span class="gradient-text">Instagram Downloader</span>
+                    <span class="gradient-text">Video Downloader</span>
                 </h1>
-                <p class="hero-subtitle">Download high-quality videos and reels from public profiles effortlessly.</p>
+                <p class="hero-subtitle">Download high-quality videos from Instagram & YouTube — up to 4K resolution.</p>
             </section>
+
+            <!-- ====== Platform Switcher ====== -->
+            <div class="platform-switcher" id="platform-switcher">
+                <button class="platform-tab active" data-platform="instagram" id="tab-instagram" type="button">
+                    <i class="ph-fill ph-instagram-logo"></i>
+                    <span>Instagram</span>
+                </button>
+                <button class="platform-tab" data-platform="youtube" id="tab-youtube" type="button">
+                    <i class="ph-fill ph-youtube-logo"></i>
+                    <span>YouTube</span>
+                </button>
+            </div>
 
             <!-- ====== Search Console ====== -->
             <section class="glass-panel main-panel" id="search-card">
@@ -162,6 +174,99 @@
                 </div>
 
                 <div class="video-grid" id="video-grid"></div>
+            </section>
+
+            <!-- ====== YouTube Section ====== -->
+            <section class="yt-section" id="yt-section">
+                <div class="glass-panel main-panel yt-panel">
+                    <!-- YouTube URL Input -->
+                    <div class="input-group">
+                        <div class="input-glow yt-glow"></div>
+                        <i class="ph ph-link input-icon-left"></i>
+                        <input type="url" class="glass-input" id="yt-url-input"
+                            placeholder="Paste YouTube video URL..." autocomplete="off" spellcheck="false">
+                        <div class="input-border"></div>
+                    </div>
+
+                    <!-- Fetch Info Button -->
+                    <button class="primary-btn yt-fetch-btn mt-4" id="yt-fetch-btn" type="button">
+                        <div class="btn-bg yt-btn-bg"></div>
+                        <div class="btn-content">
+                            <i class="ph-bold ph-magnifying-glass" id="yt-fetch-icon"></i>
+                            <span id="yt-fetch-text">Get Video Info</span>
+                            <div class="spinner" id="yt-fetch-spinner"></div>
+                        </div>
+                    </button>
+
+                    <!-- YouTube Status -->
+                    <div class="status-bar" id="yt-status-bar">
+                        <div class="status-message" id="yt-status-message">
+                            <i id="yt-status-icon" class="ph-fill"></i>
+                            <span id="yt-status-text"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- YouTube Video Preview -->
+                <div class="yt-preview" id="yt-preview">
+                    <div class="glass-panel yt-preview-card">
+                        <div class="yt-thumb-wrap">
+                            <img id="yt-thumb" alt="Video thumbnail" />
+                            <div class="yt-duration-badge" id="yt-duration">0:00</div>
+                        </div>
+                        <div class="yt-meta">
+                            <h3 class="yt-video-title" id="yt-video-title">Video Title</h3>
+                            <p class="yt-uploader" id="yt-uploader">
+                                <i class="ph-fill ph-user"></i>
+                                <span>Channel</span>
+                            </p>
+                            <p class="yt-views" id="yt-views">
+                                <i class="ph ph-eye"></i>
+                                <span>0 views</span>
+                            </p>
+                        </div>
+
+                        <div class="yt-quality-section">
+                            <h4 class="yt-quality-label">
+                                <i class="ph-fill ph-gear-six"></i>
+                                Select Quality
+                            </h4>
+                            <div class="yt-quality-grid" id="yt-quality-grid">
+                                <!-- Quality options inserted by JS -->
+                            </div>
+                        </div>
+
+                        <button class="primary-btn mt-4" id="yt-download-btn" type="button">
+                            <div class="btn-bg yt-btn-bg"></div>
+                            <div class="btn-content">
+                                <i class="ph-bold ph-download-simple" id="yt-dl-icon"></i>
+                                <span id="yt-dl-text">Download Video</span>
+                                <div class="spinner" id="yt-dl-spinner"></div>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- YouTube Loading State -->
+                <div class="loading-state" id="yt-loading-overlay">
+                    <div class="premium-spinner">
+                        <div class="spinner-ring"></div>
+                        <div class="spinner-ring inner"></div>
+                        <i class="ph-fill ph-youtube-logo"></i>
+                    </div>
+                    <p class="loading-text" id="yt-loading-text">Downloading video...</p>
+                </div>
+
+                <!-- YouTube Download Result -->
+                <section class="results-section" id="yt-results-section">
+                    <div class="results-header">
+                        <div class="results-title-group">
+                            <i class="ph-fill ph-check-circle text-green-400 text-xl"></i>
+                            <h2 class="results-title" id="yt-results-title">Ready to Save</h2>
+                        </div>
+                    </div>
+                    <div class="video-grid" id="yt-video-grid"></div>
+                </section>
             </section>
         </main>
 
