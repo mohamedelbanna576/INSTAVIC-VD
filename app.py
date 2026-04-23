@@ -4,6 +4,7 @@ FastAPI Backend Server
 """
 
 import os
+import sys
 import re
 import uuid
 import shutil
@@ -35,17 +36,26 @@ import yt_dlp
 # ---------------------------------------------------------------------------
 app = FastAPI(title="INSTAVIC VD", version="2.2.0")
 
-BASE_DIR = Path(__file__).resolve().parent
-# Force /tmp on Vercel, use local for Dev
+# Setup Paths for PyInstaller EXE support
+# BASE_DIR is internal (where static files are bundled)
+# EXE_DIR is external (where the EXE, cookies, and downloads will live)
+if getattr(sys, 'frozen', False):
+    BASE_DIR = Path(sys._MEIPASS)
+    EXE_DIR = Path(sys.executable).parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+    EXE_DIR = BASE_DIR
+
+# Force /tmp on Vercel, use local for Dev/EXE
 IS_VERCEL = os.environ.get("VERCEL", "0") == "1"
 
 def get_base_writable_dir() -> Path:
-    """Determine writable base directory (local or /tmp)."""
+    """Determine writable base directory (local, /tmp on Vercel, or next to EXE)."""
     if IS_VERCEL:
         tmp_dir = Path("/tmp/instavic")
         tmp_dir.mkdir(parents=True, exist_ok=True)
         return tmp_dir
-    return BASE_DIR
+    return EXE_DIR
 
 def get_cookies_path() -> Optional[str]:
     """Get the path to the cookies file, creating it from ENV if necessary."""
@@ -84,9 +94,8 @@ def get_config_file() -> Path:
 def get_proxies_file() -> Path:
     return get_base_writable_dir() / "proxies.txt"
 
-# Static files (Read-only assets, safe to mount)
-STATIC_DIR = BASE_DIR / "static"
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+# Static files (Mounted from bundled BASE_DIR)
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 @app.get("/api/health")
 async def health_check():
