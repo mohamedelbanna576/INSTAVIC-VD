@@ -704,6 +704,7 @@ def _fetch_youtube_info(url: str) -> dict:
         'extractor_args': {'youtube': {'player_client': ['all']}},
         'js_runtimes': {'node': {}},
         'remote_components': ['ejs:github'],
+        'cookiefile': 'cookies.txt' if Path('cookies.txt').exists() else None,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -896,6 +897,7 @@ def _do_youtube_download(url: str, format_id: str, quality_label: str, task_id: 
         'extractor_args': {'youtube': {'player_client': ['all']}},
         'js_runtimes': {'node': {}},
         'remote_components': ['ejs:github'],
+        'cookiefile': 'cookies.txt' if Path('cookies.txt').exists() else None,
     }
 
     if is_audio_only:
