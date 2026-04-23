@@ -97,6 +97,14 @@ def get_proxies_file() -> Path:
 # Static files (Mounted from bundled BASE_DIR)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
+@app.get("/")
+async def serve_index():
+    """Serve the main UI directly at the root URL."""
+    index_path = BASE_DIR / "static" / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    return {"error": "UI files not found. Please check 'static' folder."}
+
 @app.get("/api/health")
 async def health_check():
     """Verify that the app is alive and check current write path."""
@@ -994,5 +1002,5 @@ def _do_youtube_download(url: str, format_id: str, quality_label: str, task_id: 
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
-    # Passing the 'app' object directly is more reliable for PyInstaller EXEs
-    uvicorn.run(app, host="127.0.0.1", port=8000, reload=False, use_colors=False, log_level="info")
+    # Binding to 0.0.0.0 allows external access (essential for VPS/Server)
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=False, use_colors=False, log_level="info")
