@@ -39,15 +39,6 @@ BASE_DIR = Path(__file__).resolve().parent
 # Force /tmp on Vercel, use local for Dev
 IS_VERCEL = os.environ.get("VERCEL", "0") == "1"
 
-# Cookie Initialization for Production/Vercel
-COOKIES_PATH = Path("cookies.txt")
-env_cookies = os.environ.get("YOUTUBE_COOKIES")
-if env_cookies and not COOKIES_PATH.exists():
-    try:
-        COOKIES_PATH.write_text(env_cookies, encoding='utf-8')
-    except Exception as e:
-        print(f"Failed to write cookies: {e}")
-
 def get_base_writable_dir() -> Path:
     """Determine writable base directory (local or /tmp)."""
     if IS_VERCEL:
@@ -55,6 +46,31 @@ def get_base_writable_dir() -> Path:
         tmp_dir.mkdir(parents=True, exist_ok=True)
         return tmp_dir
     return BASE_DIR
+
+def get_cookies_path() -> Optional[str]:
+    """Get the path to the cookies file, creating it from ENV if necessary."""
+    writable_dir = get_base_writable_dir()
+    cookies_file = writable_dir / "cookies.txt"
+    
+    # If the file already exists (local or already created in /tmp), use it
+    if cookies_file.exists():
+        return str(cookies_file)
+    
+    # Otherwise try to create it from ENV
+    env_cookies = os.environ.get("YOUTUBE_COOKIES")
+    if env_cookies:
+        try:
+            cookies_file.write_text(env_cookies, encoding='utf-8')
+            return str(cookies_file)
+        except Exception as e:
+            print(f"Failed to write cookies to {cookies_file}: {e}")
+            
+    # Fallback to local cookies.txt if it exists in BASE_DIR (not on Vercel)
+    local_cookies = BASE_DIR / "cookies.txt"
+    if local_cookies.exists():
+        return str(local_cookies)
+        
+    return None
 
 # Paths (now stable since mkdir is handled in get_base_writable_dir)
 def get_downloads_dir() -> Path:
@@ -713,7 +729,7 @@ def _fetch_youtube_info(url: str) -> dict:
         'extractor_args': {'youtube': {'player_client': ['all']}},
         'js_runtimes': {'node': {}},
         'remote_components': ['ejs:github'],
-        'cookiefile': 'cookies.txt' if Path('cookies.txt').exists() else None,
+        'cookiefile': get_cookies_path(),
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -906,7 +922,7 @@ def _do_youtube_download(url: str, format_id: str, quality_label: str, task_id: 
         'extractor_args': {'youtube': {'player_client': ['all']}},
         'js_runtimes': {'node': {}},
         'remote_components': ['ejs:github'],
-        'cookiefile': 'cookies.txt' if Path('cookies.txt').exists() else None,
+        'cookiefile': get_cookies_path(),
     }
 
     if is_audio_only:
