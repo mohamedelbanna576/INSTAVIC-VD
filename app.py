@@ -39,6 +39,15 @@ BASE_DIR = Path(__file__).resolve().parent
 # Force /tmp on Vercel, use local for Dev
 IS_VERCEL = os.environ.get("VERCEL", "0") == "1"
 
+# Cookie Initialization for Production/Vercel
+COOKIES_PATH = Path("cookies.txt")
+env_cookies = os.environ.get("YOUTUBE_COOKIES")
+if env_cookies and not COOKIES_PATH.exists():
+    try:
+        COOKIES_PATH.write_text(env_cookies, encoding='utf-8')
+    except Exception as e:
+        print(f"Failed to write cookies: {e}")
+
 def get_base_writable_dir() -> Path:
     """Determine writable base directory (local or /tmp)."""
     if IS_VERCEL:
