@@ -201,7 +201,10 @@ def apply_auth_and_proxy(cookie_val: str, ctx_proxy: Optional[str] = None):
     if cookie_val:
         L.context._session.cookies.set("sessionid", cookie_val, domain=".instagram.com")
     else:
-        L.context._session.cookies.clear(domain=".instagram.com")
+        try:
+            L.context._session.cookies.clear(domain=".instagram.com")
+        except KeyError:
+            pass
     
     if ctx_proxy:
         L.context.proxies = {"http": ctx_proxy, "https": ctx_proxy}
