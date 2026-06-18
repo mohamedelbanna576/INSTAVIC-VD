@@ -14,6 +14,7 @@ import json
 import time
 import random
 import concurrent.futures
+import itertools
 from functools import partial
 from pathlib import Path
 from typing import Optional
@@ -34,6 +35,20 @@ import yt_dlp
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
+
+# Rotating User-Agents to avoid Instagram fingerprinting
+_USER_AGENTS = [
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.71 Mobile Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.113 Mobile Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+]
+_ua_cycle = itertools.cycle(_USER_AGENTS)
+
+def _next_ua() -> str:
+    return next(_ua_cycle)
 app = FastAPI(title="INSTAVIC VD", version="2.2.0")
 
 # Setup Paths for PyInstaller EXE support
@@ -351,26 +366,24 @@ async def download_single(req: SingleDownloadRequest):
 
 def _do_single_download(url: str, shortcode: str, task_id: str, task_dir: Path, session_id: str, proxy: Optional[str]) -> dict:
     """Blocking download logic — runs in thread pool."""
-    # --- Try yt-dlp first ---
+    # --- Try yt-dlp first (works without auth for public posts) ---
     try:
-        cookie_opts = {}
-        if session_id:
-            cookie_opts['http_headers'] = {'Cookie': f'sessionid={session_id}'}
-
+        ua = _next_ua()
         ydl_opts = {
             'format': 'best[ext=mp4]/best',
             'outtmpl': str(task_dir / '%(id)s.%(ext)s'),
             'quiet': True,
             'no_warnings': True,
             'socket_timeout': 30,
-            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-            **cookie_opts,
+            'user_agent': ua,
         }
-        
+
         if proxy:
             ydl_opts['proxy'] = proxy
+
+        # Only inject session cookie if user explicitly provided one
         if session_id:
-            ydl_opts['cookiefile'] = None
+            ydl_opts['http_headers'] = {'Cookie': f'sessionid={session_id}'}
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             if session_id:
@@ -433,16 +446,16 @@ def _do_single_download(url: str, shortcode: str, task_id: str, task_dir: Path, 
     except instaloader.exceptions.InstaloaderException as e:
         msg = str(e).lower()
         if 'rate' in msg or '429' in msg or '401' in msg or 'login' in msg or 'unauthorized' in msg:
-            raise HTTPException(status_code=403, detail="Instagram is blocking automated requests from Vercel's IP. To bypass this, please click 'Connect Account' at the top left and paste your Instagram Session ID.")
+            raise HTTPException(status_code=403, detail="Instagram is temporarily rate-limiting requests. Please wait a moment and try again.")
         elif 'private' in msg:
             raise HTTPException(status_code=403, detail="This post is from a private account.")
         elif 'not found' in msg or '404' in msg:
             raise HTTPException(status_code=404, detail="Post not found or was deleted.")
         else:
-            raise HTTPException(status_code=500, detail=f"Instagram blocked the download: {e}. Please use 'Connect Account' to bypass restrictions.")
+            raise HTTPException(status_code=500, detail=f"Could not download this video. Please try again later. ({e})")
     except Exception as e:
         shutil.rmtree(task_dir, ignore_errors=True)
-        raise HTTPException(status_code=500, detail=f"All download methods blocked by Instagram. Please click 'Connect Account' and provide your Session ID to fix this! Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Download failed. Please try again in a few moments. ({e})")
 
 
 
@@ -491,6 +504,110 @@ def bulk_download_worker(task_id: str, username: str, task_dir: Path, max_posts:
     if not task:
         return
 
+    # --- Try yt-dlp channel extraction first (works without auth) ---
+    try:
+        task["status"] = "scanning"
+        ua = _next_ua()
+        profile_url = f"https://www.instagram.com/{username}/"
+
+        ydl_scan_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': True,
+            'socket_timeout': 30,
+            'user_agent': ua,
+            'playlistend': max_posts,
+        }
+        if proxy:
+            ydl_scan_opts['proxy'] = proxy
+        if session_id:
+            ydl_scan_opts['http_headers'] = {'Cookie': f'sessionid={session_id}'}
+
+        video_urls = []
+        with yt_dlp.YoutubeDL(ydl_scan_opts) as ydl:
+            if session_id:
+                import http.cookiejar
+                cookie = http.cookiejar.Cookie(
+                    version=0, name='sessionid', value=session_id,
+                    port=None, port_specified=False,
+                    domain='.instagram.com', domain_specified=True, domain_initial_dot=True,
+                    path='/', path_specified=True, secure=True,
+                    expires=None, discard=True, comment=None, comment_url=None, rest={}
+                )
+                ydl.cookiejar.set_cookie(cookie)
+            info = ydl.extract_info(profile_url, download=False)
+            if info and 'entries' in info:
+                for entry in info['entries']:
+                    if entry and entry.get('url'):
+                        video_urls.append(entry['url'])
+                    if len(video_urls) >= max_posts:
+                        break
+
+        if video_urls:
+            task["total"] = len(video_urls)
+            task["status"] = "downloading"
+
+            for i, vid_url in enumerate(video_urls):
+                try:
+                    vid_dir = task_dir / f"vid_{i}"
+                    vid_dir.mkdir(exist_ok=True)
+
+                    ydl_dl_opts = {
+                        'format': 'best[ext=mp4]/best',
+                        'outtmpl': str(vid_dir / '%(id)s.%(ext)s'),
+                        'quiet': True,
+                        'no_warnings': True,
+                        'socket_timeout': 30,
+                        'user_agent': _next_ua(),
+                    }
+                    if proxy:
+                        ydl_dl_opts['proxy'] = proxy
+                    if session_id:
+                        ydl_dl_opts['http_headers'] = {'Cookie': f'sessionid={session_id}'}
+
+                    with yt_dlp.YoutubeDL(ydl_dl_opts) as ydl2:
+                        if session_id:
+                            cookie = http.cookiejar.Cookie(
+                                version=0, name='sessionid', value=session_id,
+                                port=None, port_specified=False,
+                                domain='.instagram.com', domain_specified=True, domain_initial_dot=True,
+                                path='/', path_specified=True, secure=True,
+                                expires=None, discard=True, comment=None, comment_url=None, rest={}
+                            )
+                            ydl2.cookiejar.set_cookie(cookie)
+                        vid_info = ydl2.extract_info(vid_url, download=True)
+
+                    video_file = find_video_file(vid_dir)
+                    if video_file:
+                        vid_id = vid_info.get('id', f'video_{i}') if vid_info else f'video_{i}'
+                        final_name = f"{vid_id}.mp4"
+                        final_path = task_dir / final_name
+                        shutil.move(str(video_file), str(final_path))
+                        shutil.rmtree(vid_dir, ignore_errors=True)
+
+                        task["videos"].append({
+                            "filename": final_name,
+                            "download_url": f"/api/download/{task_id}/{final_name}",
+                            "caption": (vid_info.get('description') or '')[:200] if vid_info else '',
+                            "date": datetime.fromtimestamp(vid_info['timestamp']).isoformat() if vid_info and vid_info.get('timestamp') else None,
+                            "shortcode": vid_id,
+                        })
+                    task["downloaded"] = i + 1
+                    time.sleep(1.5)
+
+                except Exception as e:
+                    task["errors"].append(f"Failed video {i + 1}: {e}")
+                    task["downloaded"] = i + 1
+                    shutil.rmtree(task_dir / f"vid_{i}", ignore_errors=True)
+
+            task["status"] = "complete"
+            task["done"] = True
+            return
+
+    except Exception as e:
+        print(f"[yt-dlp bulk] failed: {e}")
+
+    # --- Fallback: Instaloader ---
     apply_auth_and_proxy(session_id, proxy)
 
     try:
@@ -500,7 +617,7 @@ def bulk_download_worker(task_id: str, username: str, task_dir: Path, max_posts:
             err = str(e)
             if 'timeout' in err.lower() or 'timed out' in err.lower() or 'ConnectionError' in err:
                 task["status"] = "error"
-                task["errors"].append("Instagram is not responding (timeout). Your IP may be rate-limited. Click 'Connect Account' to fix this.")
+                task["errors"].append("Instagram is not responding (timeout). Please try again later.")
                 task["done"] = True
                 return
             raise
@@ -584,17 +701,17 @@ def bulk_download_worker(task_id: str, username: str, task_dir: Path, max_posts:
             task["errors"].append("This profile is private. Only public profiles can be downloaded.")
         elif "rate" in error_msg or "429" in error_msg or "too many" in error_msg:
             task["status"] = "error"
-            task["errors"].append("Instagram is rate-limiting this IP. Click 'Connect Account' at the top to fix this — paste your session cookie and downloads will work immediately.")
+            task["errors"].append("Instagram is temporarily rate-limiting requests. Please wait a few minutes and try again.")
         else:
             task["status"] = "error"
-            task["errors"].append(f"Instagram error: {e}. Try clicking 'Connect Account'.")
+            task["errors"].append(f"Instagram error: {e}. Please try again later.")
         task["done"] = True
 
     except Exception as e:
         err = str(e)
         if 'timeout' in err.lower() or 'timed out' in err.lower():
             task["status"] = "error"
-            task["errors"].append("Request timed out. Instagram is blocking this IP. Click 'Connect Account' to authenticate and bypass this.")
+            task["errors"].append("Request timed out. Please try again in a few moments.")
         else:
             task["status"] = "error"
             task["errors"].append(f"Error: {e}")

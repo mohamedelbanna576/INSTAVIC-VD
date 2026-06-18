@@ -777,14 +777,15 @@
             
             if (data.connected && settingsOpen) {
                 settingsOpen.innerHTML = `
-                    <i class="ph-fill ph-check-circle text-green-400"></i>
-                    <span class="text-green-400">Connected</span>
+                    <i class="ph ph-gear-six"></i>
+                    <span class="gear-connected-dot"></span>
                 `;
+                settingsOpen.title = 'Advanced Settings (Connected)';
             } else if (settingsOpen) {
                 settingsOpen.innerHTML = `
-                    <i class="ph ph-plug-charging"></i>
-                    <span>Connect Account</span>
+                    <i class="ph ph-gear-six"></i>
                 `;
+                settingsOpen.title = 'Advanced Settings';
             }
         } catch (e) {
             console.error('Failed to load config:', e);
